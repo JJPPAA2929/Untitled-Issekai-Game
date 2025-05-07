@@ -6,8 +6,9 @@ from game import WIDTH, HEIGHT, screen
 from map import GameMap
 from ui_settings import open_settings, config
 from audio import hurt_sounds, hit_sounds, kill_sounds, apply_sfx_volume
+from items import HealItem, BoostItem
+import items
 pygame.mixer.init()
-
 
 class Player:
     def __init__(self, x, y):
@@ -22,18 +23,22 @@ class Player:
         self.facing_right = True
         self.attacking = False
         self.attack_frame = 0
+        self.boost_active = False
+        self.boost_end_time = 0
+
 
     def take_damage(self, amount):
         self.health -= amount
         random.choice(hurt_sounds).play()
 
     def update(self, keys, enemies, game_map):
+        speed = 8 if self.boost_active else 5
         dx = 0
         if keys[pygame.K_LEFT]:
-            dx = -5
+            dx = -speed
             self.facing_right = False
         if keys[pygame.K_RIGHT]:
-            dx = 5
+            dx = speed
             self.facing_right = True
 
         if keys[pygame.K_SPACE] and self.on_ground:
@@ -84,6 +89,8 @@ class Player:
                 elif self.vel_y < 0:
                     self.rect.top = platform.bottom
                     self.vel_y = 0
+        if self.boost_active and pygame.time.get_ticks() > self.boost_end_time:
+            self.boost_active = False
 
     def attack(self, enemies):
         attack_rect = pygame.Rect(0, 0, 70, 60)
@@ -94,7 +101,8 @@ class Player:
 
         for enemy in enemies:
             if attack_rect.colliderect(enemy.rect):
-                enemy.take_damage(10)
+                damage = 20 if self.boost_active else 10
+                enemy.take_damage(damage)
                 random.choice(hit_sounds).play()
 
     def draw(self, surface, camera_x):
@@ -267,6 +275,15 @@ def run_game(screen):
 
         keys = pygame.key.get_pressed()
         if not paused:
+            for item in game_map.items[:]:
+                if player.rect.colliderect(item.rect):
+                    item.apply(player)
+                    game_map.items.remove(item)
+
+           
+            for item in game_map.items:
+                item.draw(screen, camera_x)
+
             player.update(keys, enemies, game_map)
             for i, enemy in enumerate(enemies[:]):
                 enemy.update(player, game_map)
