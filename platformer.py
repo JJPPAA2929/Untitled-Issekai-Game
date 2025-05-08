@@ -8,7 +8,19 @@ from ui_settings import open_settings, config
 from audio import hurt_sounds, hit_sounds, kill_sounds, apply_sfx_volume
 from items import HealItem, BoostItem
 import items
+from blood import BloodParticle, BloodStain
+
+blood_group = pygame.sprite.Group()
+
+blood_image = pygame.image.load("assets/blood/blood-splash1.png").convert_alpha()
 pygame.mixer.init()
+
+blood_stain_images = [pygame.image.load(os.path.join("assets", "blood", f"blood-stain{i}.png")).convert_alpha()
+    for i in range(1, 3)
+]
+blood_splashes = [pygame.image.load(os.path.join("assets", "blood", f"blood-splash{i}.png")) for i in range(1, 6)]
+blood_drops = [pygame.image.load(os.path.join("assets", "blood", f"blood-drop{i}.png")) for i in range(1, 3)]
+
 
 class Player:
     def __init__(self, x, y):
@@ -31,7 +43,7 @@ class Player:
         self.health -= amount
         random.choice(hurt_sounds).play()
 
-    def update(self, keys, enemies, game_map):
+    def update(self, keys, enemies, game_map, blood_particles, blood_image):
         speed = 8 if self.boost_active else 5
         dx = 0
         if keys[pygame.K_LEFT]:
@@ -49,7 +61,7 @@ class Player:
             self.attacking = True
             self.attack_frame = 10
             self.attack_cooldown = 20
-            self.attack(enemies)
+            self.attack(enemies, blood_particles, blood_image)
 
         if self.attack_cooldown > 0:
             self.attack_cooldown -= 1
@@ -92,7 +104,7 @@ class Player:
         if self.boost_active and pygame.time.get_ticks() > self.boost_end_time:
             self.boost_active = False
 
-    def attack(self, enemies):
+    def attack(self, enemies, blood_particles, blood_image):
         attack_rect = pygame.Rect(0, 0, 70, 60)
         if self.facing_right:
             attack_rect.midleft = self.rect.midright
@@ -103,6 +115,14 @@ class Player:
             if attack_rect.colliderect(enemy.rect):
                 damage = 20 if self.boost_active else 10
                 enemy.take_damage(damage)
+                for _ in range(3):  # было 5, станет 3
+                    particle = BloodParticle(
+                        enemy.rect.centerx,
+                        enemy.rect.centery,
+                        random.choice(blood_splashes),
+                        scale=48  # было 32, можно даже 64
+                    )
+                    blood_particles.append(particle)
                 random.choice(hit_sounds).play()
 
     def draw(self, surface, camera_x):
@@ -223,20 +243,62 @@ class UI:
     def __init__(self, player):
         self.player = player
         self.font = pygame.font.Font(None, 36)
+        self.boost_icon = pygame.transform.scale(
+            pygame.image.load("assets/textures/boost.png").convert_alpha(), (32, 32)
+        )
+
+        self.face_images = {
+            "100": pygame.image.load("assets/portraits/face_100.png").convert_alpha(),
+            "75": pygame.image.load("assets/portraits/face_75.png").convert_alpha(),
+            "50": pygame.image.load("assets/portraits/face_50.png").convert_alpha(),
+            "25": pygame.image.load("assets/portraits/face_25.png").convert_alpha(),
+            "dead": pygame.image.load("assets/portraits/face_dead.png").convert_alpha(),
+        }
+
+    def get_face_image(self):
+        hp = self.player.health
+        if hp <= 0:
+            return self.face_images["dead"]
+        elif hp <= 25:
+            return self.face_images["25"]
+        elif hp <= 50:
+            return self.face_images["50"]
+        elif hp <= 75:
+            return self.face_images["75"]
+        else:
+            return self.face_images["100"]
 
     def draw(self, surface):
-        pygame.draw.rect(surface, (200, 100, 100), (20, 20, 100, 100))
+        # Портрет
+        face_img = self.get_face_image()
+        face_img = pygame.transform.scale(face_img, (128, 110))  # Масштаб 100x100
+        surface.blit(face_img, (5, 5))
+
+        # Полоса HP
         health_width = 300 * (self.player.health / self.player.max_health)
         pygame.draw.rect(surface, (255, 0, 0), (130, 50, 300, 30))
         pygame.draw.rect(surface, (0, 255, 0), (130, 50, health_width, 30))
         pygame.draw.rect(surface, (255, 255, 255), (130, 50, 300, 30), 2)
 
+        # Иконка буста
+        if self.player.boost_active and pygame.time.get_ticks() < self.player.boost_end_time:
+            surface.blit(self.boost_icon, (130 + 310, 48))
+
+
+def draw_stains(surface, stains, blood_image, camera_x):
+    for stain in stains:
+        surface.blit(stain.image, (stain.x - camera_x, stain.y))
+
 def run_game(screen):
+    heal_image = pygame.transform.scale(pygame.image.load("assets/textures/heal.png").convert_alpha(), (64, 64))
+    boost_image = pygame.transform.scale(pygame.image.load("assets/textures/boost.png").convert_alpha(), (64, 64))
+    game_map = GameMap("level1.map", heal_image, boost_image)
+    global blood_stains
     clock = pygame.time.Clock()
-    game_map = GameMap("level1.map")
     player = Player(*game_map.get_player_spawn().topleft)
     ui = UI(player)
-
+    blood_stains = []
+    blood_particles = []
     enemies = []
     for spawn in game_map.get_enemy_spawns():
         enemy_type = "melee" if spawn.symbol == "M" else "ranged"
@@ -272,7 +334,10 @@ def run_game(screen):
                         elif pause_options[selected_option] == "Выход":
                             pygame.quit()
                             exit()
-
+        for particle in blood_particles[:]:
+            particle.update(game_map.platforms, blood_stains)
+            if particle.on_ground:
+                blood_particles.remove(particle)
         keys = pygame.key.get_pressed()
         if not paused:
             for item in game_map.items[:]:
@@ -284,7 +349,7 @@ def run_game(screen):
             for item in game_map.items:
                 item.draw(screen, camera_x)
 
-            player.update(keys, enemies, game_map)
+            player.update(keys, enemies, game_map, blood_particles, blood_image)
             for i, enemy in enumerate(enemies[:]):
                 enemy.update(player, game_map)
                 for j in range(i + 1, len(enemies)):
@@ -295,18 +360,36 @@ def run_game(screen):
                         else:
                             enemy.rect.left = other.rect.right
                 if enemy.health <= 0:
+                    stain_img = random.choice(blood_stains)  # это список surface-ов
+                    stain_img = random.choice(blood_stain_images)
+                    stain = BloodStain(enemy.rect.centerx, enemy.rect.bottom, stain_img)
+                    blood_stains.append(stain)
                     enemies.remove(enemy)
                     random.choice(kill_sounds).play()
 
         camera_x = player.rect.x - WIDTH // 3
         game_map.draw(screen, camera_x)
+        draw_stains(screen, blood_stains, blood_image, camera_x)
+        for particle in blood_particles:
+            particle.draw(screen, camera_x)
 
         for enemy in enemies:
             enemy.draw(screen, camera_x)
 
         player.draw(screen, camera_x)
         ui.draw(screen)
+        if player.boost_active and pygame.time.get_ticks() < player.boost_end_time:
+            red_overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+            pulse = (math.sin(pygame.time.get_ticks() / 200) + 1) / 2  # от 0 до 1
+            max_alpha = int(160 * pulse)  # максимум прозрачности пульсации
 
+            for i in range(40):
+                alpha = int(max_alpha * (1 - i / 40))
+                pygame.draw.rect(red_overlay, (100, 0, 0, alpha), (i, 0, 1, HEIGHT))
+                pygame.draw.rect(red_overlay, (100, 0, 0, alpha), (WIDTH - i, 0, 1, HEIGHT))
+                pygame.draw.rect(red_overlay, (100, 0, 0, alpha), (0, i, WIDTH, 1))
+                pygame.draw.rect(red_overlay, (100, 0, 0, alpha), (0, HEIGHT - i, WIDTH, 1))
+            screen.blit(red_overlay, (0, 0))
         if paused:
             overlay = pygame.Surface((WIDTH, HEIGHT))
             overlay.set_alpha(180)
@@ -320,3 +403,4 @@ def run_game(screen):
 
         pygame.display.flip()
         clock.tick(60)
+        

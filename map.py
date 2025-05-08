@@ -1,5 +1,5 @@
 import pygame
-from items import HealItem, BoostItem
+from items import HealItem, BoostItem, heal_image, boost_image
 
 TILE_SIZE = 64
 
@@ -10,7 +10,7 @@ class EnemySpawn:
         self.symbol = symbol
 
 class GameMap:
-    def __init__(self, filename):
+    def __init__(self, filename, heal_image, boost_image):
         self.platforms = []
         self.player_spawn = None
         self.enemy_spawns = []
@@ -31,9 +31,9 @@ class GameMap:
                 elif tile in ("M", "R"):
                     self.enemy_spawns.append(EnemySpawn(x, y, tile))
                 elif tile == "H":
-                    self.items.append(HealItem(x + TILE_SIZE // 4, y + TILE_SIZE // 4))
+                    self.items.append(HealItem(x + TILE_SIZE // 4, y + TILE_SIZE // 24, heal_image))
                 elif tile == "B":
-                    self.items.append(BoostItem(x + TILE_SIZE // 4, y + TILE_SIZE // 4))
+                    self.items.append(BoostItem(x + TILE_SIZE // 4, y + TILE_SIZE // 24, boost_image))
 
     def get_player_spawn(self):
         return self.player_spawn
