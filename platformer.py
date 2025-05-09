@@ -24,7 +24,7 @@ blood_drops = [pygame.image.load(os.path.join("assets", "blood", f"blood-drop{i}
 
 class Player:
     def __init__(self, x, y):
-        self.rect = pygame.Rect(x, y, 50, 80)
+        self.rect = pygame.Rect(x, y + 16, 50, 95)
         self.color = (255, 0, 0)
         self.vel_y = 0
         self.jump = False
@@ -37,6 +37,26 @@ class Player:
         self.attack_frame = 0
         self.boost_active = False
         self.boost_end_time = 0
+
+        # Загрузка спрайтов
+        self.idle_frames = [pygame.transform.scale(pygame.image.load("assets/sprites/antagonist-idle.png").convert_alpha(), (75, 96))]
+        self.walk_frames = [pygame.transform.scale(pygame.image.load(f"assets/sprites/antagonist-walking{i}.png").convert_alpha(), (75, 96)) for i in range(1, 3)]
+        self.attack_left_frames = [pygame.transform.scale(pygame.image.load(f"assets/sprites/antagonist-attackingleft{i}.png").convert_alpha(), (75, 96)) for i in range(1, 5)]
+        self.attack_right_frames = [pygame.transform.scale(pygame.image.load(f"assets/sprites/antagonist-attackingright{i}.png").convert_alpha(), (75, 96)) for i in range(1, 5)]
+
+        self.idle_frame = self.idle_frames[0]
+        self.walk_index = 0
+        self.walk_timer = 0
+        self.frame_index = 0
+        self.frame_timer = 0
+        self.animation_speed = 0.5
+        self.attack_timer = 0
+        self.attack_frames = []
+        self.attack_frame_index = 0
+        self.current_attack_frames = []
+
+        self.image = self.idle_frame
+        self.mask = pygame.mask.from_surface(self.image)
 
 
     def take_damage(self, amount):
@@ -52,6 +72,14 @@ class Player:
         if keys[pygame.K_RIGHT]:
             dx = speed
             self.facing_right = True
+        if dx != 0:
+            self.walk_timer += 1
+            if self.walk_timer >= 5:  
+                self.walk_index = (self.walk_index + 1) % len(self.walk_frames)
+                self.walk_timer = 0
+        else:
+            self.walk_index = 0
+            self.walk_timer = 0
 
         if keys[pygame.K_SPACE] and self.on_ground:
             self.vel_y = -15
@@ -60,16 +88,30 @@ class Player:
         if keys[pygame.K_f] and self.attack_cooldown == 0:
             self.attacking = True
             self.attack_frame = 10
-            self.attack_cooldown = 20
+            self.attack_cooldown = 10
             self.attack(enemies, blood_particles, blood_image)
 
         if self.attack_cooldown > 0:
             self.attack_cooldown -= 1
 
+        self.frame_timer += 1
+
         if self.attacking:
-            self.attack_frame -= 1
-            if self.attack_frame <= 0:
+            self.attack_timer += self.animation_speed
+            if self.attack_timer >= 1:
+                self.attack_frame_index += 1
+                self.attack_timer = 0
+            if self.attack_frame_index >= len(self.current_attack_frames):
                 self.attacking = False
+        else:
+            keys = pygame.key.get_pressed()
+            if keys[pygame.K_LEFT] or keys[pygame.K_RIGHT]:
+                if self.frame_timer >= self.animation_speed:
+                    self.frame_timer = 0
+                    self.frame_index = (self.frame_index + 1) % len(self.walk_frames)
+            else:
+                self.frame_index = 0
+                self.frame_timer = 0
 
         self.vel_y += 0.5
         if self.vel_y > 10:
@@ -83,12 +125,6 @@ class Player:
                 elif dx < 0:
                     self.rect.left = platform.right
 
-        for enemy in enemies:
-            if self.rect.colliderect(enemy.rect):
-                if dx > 0:
-                    self.rect.right = enemy.rect.left
-                elif dx < 0:
-                    self.rect.left = enemy.rect.right
 
         self.rect.y += self.vel_y
         self.on_ground = False
@@ -103,40 +139,72 @@ class Player:
                     self.vel_y = 0
         if self.boost_active and pygame.time.get_ticks() > self.boost_end_time:
             self.boost_active = False
+        self.frame_timer += 1
+
+        anim_speed = 5
+        if self.attacking:
+            attack_frames = random.choice([self.attack_left_frames, self.attack_right_frames]) if self.frame_timer == 1 else self.current_attack_frames
+            self.current_attack_frames = attack_frames
+            self.image = attack_frames[self.frame_timer // anim_speed % len(attack_frames)]
+        elif dx != 0:
+            self.image = self.walk_frames[self.frame_timer // anim_speed % len(self.walk_frames)]
+        else:
+            self.image = self.idle_frames[0]
+        if not self.facing_right:
+            self.image = pygame.transform.flip(self.image, True, False)
+
+
 
     def attack(self, enemies, blood_particles, blood_image):
+        self.attacking = True
+        self.attack_timer = 0
+        self.attack_frame_index = 0
+
+    
+        if random.choice([True, False]):
+            self.current_attack_frames = self.attack_left_frames
+        else:
+            self.current_attack_frames = self.attack_right_frames
+
+
         attack_rect = pygame.Rect(0, 0, 70, 60)
         if self.facing_right:
-            attack_rect.midleft = self.rect.midright
+            attack_rect.topleft = (self.rect.right - 10, self.rect.top + 30)
         else:
-            attack_rect.midright = self.rect.midleft
+            attack_rect.topright = (self.rect.left + 10, self.rect.top + 30)
 
         for enemy in enemies:
             if attack_rect.colliderect(enemy.rect):
                 damage = 20 if self.boost_active else 10
                 enemy.take_damage(damage)
-                for _ in range(3):  # было 5, станет 3
-                    particle = BloodParticle(
-                        enemy.rect.centerx,
-                        enemy.rect.centery,
-                        random.choice(blood_splashes),
-                        scale=48  # было 32, можно даже 64
-                    )
+                for _ in range(2):
+                    particle = BloodParticle(enemy.rect.centerx, enemy.rect.centery, random.choice(blood_splashes))
                     blood_particles.append(particle)
+
                 random.choice(hit_sounds).play()
 
     def draw(self, surface, camera_x):
-        pygame.draw.rect(surface, self.color, 
-                        (self.rect.x - camera_x, self.rect.y, 
-                         self.rect.width, self.rect.height))
+        if self.attacking and self.current_attack_frames:
+            frame = self.current_attack_frames[self.attack_frame_index % len(self.current_attack_frames)]
+        elif self.rect.x != 0 and len(self.walk_frames) > 0:
+            frame = self.walk_frames[self.walk_index % len(self.walk_frames)]
+        else:
+            frame = self.idle_frame
 
-        if self.attacking:
-            attack_rect = pygame.Rect(0, 0, 70, 60)
-            if self.facing_right:
-                attack_rect.midleft = (self.rect.midright[0] - camera_x, self.rect.midright[1])
-            else:
-                attack_rect.midright = (self.rect.midleft[0] - camera_x, self.rect.midleft[1])
-            pygame.draw.rect(surface, (255, 255, 0), attack_rect, 2)
+        if not self.facing_right:
+            frame = pygame.transform.flip(frame, True, False)
+
+        x = self.rect.x - camera_x
+        y = self.rect.y
+        surface.blit(frame, (x, y))
+        self.mask = pygame.mask.from_surface(frame)
+
+        attack_rect = pygame.Rect(0, 0, 40, 30)
+        if self.facing_right:
+            attack_rect.midleft = (self.rect.right, self.rect.centery - 10)
+        else:
+            attack_rect.midright = (self.rect.left, self.rect.centery - 10)
+
 
 class Bullet:
     def __init__(self, x, y, direction):
@@ -360,7 +428,6 @@ def run_game(screen):
                         else:
                             enemy.rect.left = other.rect.right
                 if enemy.health <= 0:
-                    stain_img = random.choice(blood_stains)  # это список surface-ов
                     stain_img = random.choice(blood_stain_images)
                     stain = BloodStain(enemy.rect.centerx, enemy.rect.bottom, stain_img)
                     blood_stains.append(stain)
