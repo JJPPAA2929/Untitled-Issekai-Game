@@ -1,13 +1,14 @@
 import pygame
 from config import config, save_config
 
-pygame.init()
+
+pygame.init() 
 
 WIDTH, HEIGHT = 1280, 720
 TILE_SIZE = 50
 flags = pygame.FULLSCREEN if config["fullscreen"] else 0
 screen = pygame.display.set_mode((WIDTH, HEIGHT), flags)
-pygame.display.set_caption("Untitled Issekai Game")
+pygame.display.set_caption("Issekill")
 
 def show_intro(screen):
     clock = pygame.time.Clock()
